@@ -5,81 +5,70 @@ import pandas as pd
 import numpy as np
 import time
 
-# -------------------------------------------------
-# Page config
-# -------------------------------------------------
+# =================================================
+# PAGE CONFIG
+# =================================================
 st.set_page_config(
     page_title="House Price Prediction",
     page_icon="🏠",
     layout="wide"
 )
 
-# -------------------------------------------------
-# Dark mode toggle
-# -------------------------------------------------
-dark_mode = st.toggle("🌙 Dark Mode")
+# =================================================
+# ROBUST PATH HANDLING (STREAMLIT CLOUD SAFE)
+# =================================================
+BASE_DIR = os.path.dirname(os.path.realpath(__file__))
 
-if dark_mode:
-    bg_color = "#0e1117"
-    card_color = "#1c1f26"
-    text_color = "#ffffff"
-else:
-    bg_color = "#f5f7fa"
-    card_color = "#ffffff"
-    text_color = "#000000"
+# Try all possible safe locations
+POSSIBLE_MODEL_DIRS = [
+    os.path.join(BASE_DIR, "models"),
+    os.path.join(BASE_DIR, "..", "models"),
+    os.path.join("/mount/src", "house-price-prediction", "models"),
+]
 
-# -------------------------------------------------
-# Custom CSS
-# -------------------------------------------------
-st.markdown(f"""
-<style>
-html {{ scroll-behavior: smooth; }}
-body {{ background-color: {bg_color}; color: {text_color}; }}
+POSSIBLE_DATA_DIRS = [
+    os.path.join(BASE_DIR, "data"),
+    os.path.join(BASE_DIR, "..", "data"),
+    os.path.join("/mount/src", "house-price-prediction", "data"),
+]
 
-.card {{
-    background: {card_color};
-    padding: 1.5rem;
-    border-radius: 16px;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.12);
-    margin-bottom: 1.5rem;
-}}
+def find_existing_dir(paths):
+    for p in paths:
+        if os.path.exists(p):
+            return p
+    return None
 
-.result-box {{
-    background: linear-gradient(120deg, #4CAF50, #2ECC71);
-    color: white;
-    padding: 2rem;
-    border-radius: 20px;
-    text-align: center;
-    font-size: 26px;
-    font-weight: bold;
-    margin-top: 2rem;
-}}
+MODEL_DIR = find_existing_dir(POSSIBLE_MODEL_DIRS)
+DATA_DIR = find_existing_dir(POSSIBLE_DATA_DIRS)
 
-.feature-box {{
-    background: {card_color};
-    padding: 1rem;
-    border-radius: 14px;
-    margin-top: 1rem;
-}}
-</style>
-""", unsafe_allow_html=True)
+# =================================================
+# FAIL FAST IF FILES ARE MISSING (CLEAR ERROR)
+# =================================================
+if MODEL_DIR is None:
+    st.error("❌ models/ folder not found in deployment.")
+    st.write("📂 Current directory contents:", os.listdir(BASE_DIR))
+    st.stop()
 
-# -------------------------------------------------
-# Paths
-# -------------------------------------------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_DIR = os.path.join(BASE_DIR, "models")
-DATA_PATH = os.path.join(BASE_DIR, "data", "kc_house_data_cleaned.csv")
+if DATA_DIR is None:
+    st.error("❌ data/ folder not found in deployment.")
+    st.write("📂 Current directory contents:", os.listdir(BASE_DIR))
+    st.stop()
 
-# -------------------------------------------------
-# Load model & scaler
-# -------------------------------------------------
+MODEL_PATH = os.path.join(MODEL_DIR, "gradient_boosting.pkl")
+SCALER_PATH = os.path.join(MODEL_DIR, "scaler.pkl")
+DATA_PATH = os.path.join(DATA_DIR, "kc_house_data_cleaned.csv")
+
+# =================================================
+# LOAD MODEL & SCALER (CACHED SAFELY)
+# =================================================
 @st.cache_resource
 def load_model():
-    with open(os.path.join(MODEL_DIR, "gradient_boosting.pkl"), "rb") as f:
+    with open(MODEL_PATH, "rb") as f:
         model = pickle.load(f)
-    with open(os.path.join(MODEL_DIR, "scaler.pkl"), "rb") as f:
+
+    with open(SCALER_PATH, "rb") as f:
         scaler = pickle.load(f)
+
     return model, scaler
 
 @st.cache_data
@@ -90,38 +79,61 @@ def load_features():
 model, scaler = load_model()
 features = load_features()
 
-# -------------------------------------------------
-# Header
-# -------------------------------------------------
-st.markdown(
-    "<h1 style='text-align:center;'>🏠 House Price Predictor</h1>",
-    unsafe_allow_html=True
-)
-st.markdown(
-    "<p style='text-align:center;'>Premium ML-based house price estimation</p>",
-    unsafe_allow_html=True
-)
+# =================================================
+# UI STYLING
+# =================================================
+st.markdown("""
+<style>
+html { scroll-behavior: smooth; }
 
-# -------------------------------------------------
-# Sample data button
-# -------------------------------------------------
-if "sample" not in st.session_state:
-    st.session_state.sample = False
+.card {
+    background: #ffffff;
+    padding: 1.5rem;
+    border-radius: 16px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+    margin-bottom: 1.5rem;
+}
+
+.result-box {
+    background: linear-gradient(120deg, #4CAF50, #2ECC71);
+    color: white;
+    padding: 2rem;
+    border-radius: 20px;
+    text-align: center;
+    font-size: 26px;
+    font-weight: bold;
+    margin-top: 2rem;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# =================================================
+# HEADER
+# =================================================
+st.markdown("<h1 style='text-align:center;'>🏠 House Price Predictor</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center;'>Public ML app deployed on Streamlit Cloud</p>", unsafe_allow_html=True)
+
+# =================================================
+# SAMPLE DATA BUTTON
+# =================================================
+if "use_sample" not in st.session_state:
+    st.session_state.use_sample = False
 
 if st.button("⚡ Use Sample Data"):
-    st.session_state.sample = True
+    st.session_state.use_sample = True
 
-# -------------------------------------------------
-# Input Section
-# -------------------------------------------------
+def sample(val, default):
+    return default if st.session_state.use_sample else val
+
+# =================================================
+# INPUT SECTIONS
+# =================================================
+user_input = {}
+
 st.markdown("<div class='card'>", unsafe_allow_html=True)
 st.subheader("🏗️ Property Details")
 
 col1, col2, col3 = st.columns(3)
-user_input = {}
-
-def sample(val, default):
-    return default if st.session_state.sample else val
 
 with col1:
     user_input["bedrooms"] = st.slider("Bedrooms", 1, 10, sample(3, 4))
@@ -140,9 +152,6 @@ with col3:
 
 st.markdown("</div>", unsafe_allow_html=True)
 
-# -------------------------------------------------
-# Location Section
-# -------------------------------------------------
 st.markdown("<div class='card'>", unsafe_allow_html=True)
 st.subheader("📍 Location & Features")
 
@@ -163,23 +172,33 @@ with col6:
 
 st.markdown("</div>", unsafe_allow_html=True)
 
-# -------------------------------------------------
-# Neighborhood Section
-# -------------------------------------------------
 st.markdown("<div class='card'>", unsafe_allow_html=True)
 st.subheader("🏘️ Neighborhood Averages")
 
 user_input["sqft_living15"] = st.number_input("Avg Living Area (15 nearby)", 300, 10000, sample(2000, 2200))
 user_input["sqft_lot15"] = st.number_input("Avg Lot Size (15 nearby)", 300, 50000, sample(6000, 6500))
-
 user_input["year"] = user_input["yr_built"]
 user_input["month"] = 6
 
 st.markdown("</div>", unsafe_allow_html=True)
 
-# -------------------------------------------------
-# Prediction
-# -------------------------------------------------
+# =================================================
+# SMART WARNINGS
+# =================================================
+warnings = []
+if user_input["sqft_living"] < 300:
+    warnings.append("Living area seems unusually small.")
+if user_input["bathrooms"] > user_input["bedrooms"] + 2:
+    warnings.append("Bathrooms unusually high compared to bedrooms.")
+if not (47.1 <= user_input["lat"] <= 47.9):
+    warnings.append("Latitude outside King County range.")
+
+if warnings:
+    st.warning("⚠️ Input warnings:\n- " + "\n- ".join(warnings))
+
+# =================================================
+# PREDICTION
+# =================================================
 if st.button("🔮 Predict Price"):
     with st.spinner("Estimating house price..."):
         time.sleep(0.6)
@@ -203,21 +222,8 @@ if st.button("🔮 Predict Price"):
     </div>
     """, unsafe_allow_html=True)
 
-    # -------------------------------------------------
-    # Feature insight (trust builder)
-    # -------------------------------------------------
-    st.markdown("<div class='feature-box'>", unsafe_allow_html=True)
-    st.subheader("📊 What influenced this price most?")
-    st.markdown("""
-    • Living area (sqft_living)  
-    • Location (latitude & longitude)  
-    • Construction quality (grade)  
-    • Waterfront & view  
-    """)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# -------------------------------------------------
-# Footer
-# -------------------------------------------------
+# =================================================
+# FOOTER
+# =================================================
 st.markdown("<hr>", unsafe_allow_html=True)
-st.caption("Built with ❤️ using Streamlit & Machine Learning")
+st.caption("Built with ❤️ | Deployed on Streamlit Cloud")
