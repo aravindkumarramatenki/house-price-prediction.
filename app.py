@@ -5,83 +5,65 @@ import pandas as pd
 import numpy as np
 import time
 
-# =================================================
+# ==================================================
 # PAGE CONFIG
-# =================================================
+# ==================================================
 st.set_page_config(
     page_title="House Price Prediction",
     page_icon="🏠",
     layout="wide"
 )
 
-# =================================================
-# ROBUST PATH HANDLING (STREAMLIT CLOUD SAFE)
-# =================================================
-BASE_DIR = os.path.dirname(os.path.realpath(__file__))
+# ==================================================
+# SAFE BASE DIRECTORY (WORKS LOCALLY + CLOUD)
+# ==================================================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Try all possible safe locations
-POSSIBLE_MODEL_DIRS = [
-    os.path.join(BASE_DIR, "models"),
-    os.path.join(BASE_DIR, "..", "models"),
-    os.path.join("/mount/src", "house-price-prediction", "models"),
-]
+MODELS_DIR = os.path.join(BASE_DIR, "models")
+DATA_DIR = os.path.join(BASE_DIR, "data")
 
-POSSIBLE_DATA_DIRS = [
-    os.path.join(BASE_DIR, "data"),
-    os.path.join(BASE_DIR, "..", "data"),
-    os.path.join("/mount/src", "house-price-prediction", "data"),
-]
-
-def find_existing_dir(paths):
-    for p in paths:
-        if os.path.exists(p):
-            return p
-    return None
-
-MODEL_DIR = find_existing_dir(POSSIBLE_MODEL_DIRS)
-DATA_DIR = find_existing_dir(POSSIBLE_DATA_DIRS)
-
-# =================================================
-# FAIL FAST IF FILES ARE MISSING (CLEAR ERROR)
-# =================================================
-if MODEL_DIR is None:
-    st.error("❌ models/ folder not found in deployment.")
-    st.write("📂 Current directory contents:", os.listdir(BASE_DIR))
-    st.stop()
-
-if DATA_DIR is None:
-    st.error("❌ data/ folder not found in deployment.")
-    st.write("📂 Current directory contents:", os.listdir(BASE_DIR))
-    st.stop()
-
-MODEL_PATH = os.path.join(MODEL_DIR, "gradient_boosting.pkl")
-SCALER_PATH = os.path.join(MODEL_DIR, "scaler.pkl")
+MODEL_PATH = os.path.join(MODELS_DIR, "gradient_boosting.pkl")
+SCALER_PATH = os.path.join(MODELS_DIR, "scaler.pkl")
 DATA_PATH = os.path.join(DATA_DIR, "kc_house_data_cleaned.csv")
 
-# =================================================
-# LOAD MODEL & SCALER (CACHED SAFELY)
-# =================================================
-@st.cache_resource
-def load_model():
-    with open(MODEL_PATH, "rb") as f:
-        model = pickle.load(f)
+# ==================================================
+# HARD FAIL IF FILES ARE MISSING (CLEAR MESSAGE)
+# ==================================================
+if not os.path.exists(MODELS_DIR):
+    st.error("❌ 'models/' folder not found in the repository.")
+    st.stop()
 
-    with open(SCALER_PATH, "rb") as f:
-        scaler = pickle.load(f)
+if not os.path.exists(DATA_DIR):
+    st.error("❌ 'data/' folder not found in the repository.")
+    st.stop()
 
-    return model, scaler
+if not os.path.exists(MODEL_PATH):
+    st.error("❌ Model file 'gradient_boosting.pkl' not found.")
+    st.stop()
 
-@st.cache_data
-def load_features():
-    df = pd.read_csv(DATA_PATH)
-    return df.drop("price", axis=1).columns.tolist()
+if not os.path.exists(SCALER_PATH):
+    st.error("❌ Scaler file 'scaler.pkl' not found.")
+    st.stop()
 
-model, scaler = load_model()
-features = load_features()
+if not os.path.exists(DATA_PATH):
+    st.error("❌ Cleaned dataset not found.")
+    st.stop()
 
-# =================================================
-# UI STYLING
-# =================================================
+# ==================================================
+# LOAD MODEL & DATA (NO CACHE → NO CLOUD ISSUES)
+# ==================================================
+with open(MODEL_PATH, "rb") as f:
+    model = pickle.load(f)
+
+with open(SCALER_PATH, "rb") as f:
+    scaler = pickle.load(f)
+
+df = pd.read_csv(DATA_PATH)
+feature_columns = df.drop("price", axis=1).columns.tolist()
+
+# ==================================================
+# UI STYLES
+# ==================================================
 st.markdown("""
 <style>
 html { scroll-behavior: smooth; }
@@ -107,27 +89,27 @@ html { scroll-behavior: smooth; }
 </style>
 """, unsafe_allow_html=True)
 
-# =================================================
+# ==================================================
 # HEADER
-# =================================================
+# ==================================================
 st.markdown("<h1 style='text-align:center;'>🏠 House Price Predictor</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align:center;'>Public ML app deployed on Streamlit Cloud</p>", unsafe_allow_html=True)
 
-# =================================================
+# ==================================================
 # SAMPLE DATA BUTTON
-# =================================================
-if "use_sample" not in st.session_state:
-    st.session_state.use_sample = False
+# ==================================================
+if "sample" not in st.session_state:
+    st.session_state.sample = False
 
 if st.button("⚡ Use Sample Data"):
-    st.session_state.use_sample = True
+    st.session_state.sample = True
 
-def sample(val, default):
-    return default if st.session_state.use_sample else val
+def sample(user_val, default_val):
+    return default_val if st.session_state.sample else user_val
 
-# =================================================
+# ==================================================
 # INPUT SECTIONS
-# =================================================
+# ==================================================
 user_input = {}
 
 st.markdown("<div class='card'>", unsafe_allow_html=True)
@@ -182,29 +164,32 @@ user_input["month"] = 6
 
 st.markdown("</div>", unsafe_allow_html=True)
 
-# =================================================
+# ==================================================
 # SMART WARNINGS
-# =================================================
+# ==================================================
 warnings = []
+
 if user_input["sqft_living"] < 300:
     warnings.append("Living area seems unusually small.")
+
 if user_input["bathrooms"] > user_input["bedrooms"] + 2:
     warnings.append("Bathrooms unusually high compared to bedrooms.")
+
 if not (47.1 <= user_input["lat"] <= 47.9):
-    warnings.append("Latitude outside King County range.")
+    warnings.append("Latitude outside typical King County range.")
 
 if warnings:
     st.warning("⚠️ Input warnings:\n- " + "\n- ".join(warnings))
 
-# =================================================
+# ==================================================
 # PREDICTION
-# =================================================
+# ==================================================
 if st.button("🔮 Predict Price"):
     with st.spinner("Estimating house price..."):
-        time.sleep(0.6)
+        time.sleep(0.5)
 
         input_df = pd.DataFrame([user_input])
-        input_df = input_df[features]
+        input_df = input_df[feature_columns]
 
         scaled = scaler.transform(input_df)
         prediction = model.predict(scaled)[0]
@@ -222,8 +207,9 @@ if st.button("🔮 Predict Price"):
     </div>
     """, unsafe_allow_html=True)
 
-# =================================================
+# ==================================================
 # FOOTER
-# =================================================
+# ==================================================
 st.markdown("<hr>", unsafe_allow_html=True)
-st.caption("Built with ❤️ | Deployed on Streamlit Cloud")
+st.caption("Built with ❤️ | Streamlit Cloud Deployment")
+#end------
